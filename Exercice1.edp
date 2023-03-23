@@ -1,0 +1,199 @@
+/***********************************************************************/
+/************************ DEFINITION DU MAILLAGE ***********************/
+/***********************************************************************/
+
+// Params 
+real R = 1;
+real rin = 5; // rayon interieur de la crosse aorttique
+real RayonExt = 2*R + rin; // rayon exterieur de la crosse aorttique
+
+// labels 
+int GammaIn = 1;
+int GammaWall = 2;
+int GammaOut = 3;
+
+// Points notés selon l'axe x et l'axe -y 
+real xA = -R;
+real xB = R;
+real xC = R + 2*rin;
+real xD = 3*R + 2*rin;
+real yA = 0;
+real yB = -R;
+real yC = -5*R; 
+
+// Mesh
+border In(t = xA, xB) {x = t; y = yB; label = GammaIn;}
+border WallExt1(t = yB, yA) {x = xB; y = t; label = GammaWall;}
+border WallExt2(t = 0, pi) {x = R + rin + RayonExt*cos(t); y = RayonExt*sin(t); label = GammaWall;}
+border WallExt3(t = yA, yC) {x = xC; y = t; label = GammaWall;}
+border Out(t = xC, xD) {x = t; y = yC; label = GammaOut;}
+border WallIn1(t = yC, yA) {x = xD; y = t; label = GammaWall;}
+border WallIn2(t = pi, 0) {x = R + rin + rin*cos(t); y = rin*sin(t); label = GammaWall;}
+border WallIn3(t = yA, yB) {x = xA; y = t; label = GammaWall;}
+
+// Pas
+real h = 0.20;
+int NIn = (xB-xA)/h;
+int NWallIn1 = (yA-yC)/h;
+int NWallIn2 = (pi*rin)/h; // demi perimetre rayon
+int NWallIn3 = (yA-yB)/h;
+int NOut = (xD-xC)/h;
+int NWallExt1 = (yA-yB)/h;
+int NWallExt2 = (pi*RayonExt)/h; // demi perimetre rayon
+int NWallExt3 = (yA-yC)/h;
+
+
+mesh Aorte = buildmesh(In(NIn) + WallIn1(NWallIn1) + WallIn2(NWallIn2) + WallIn3(NWallIn3)  
+             + Out(NOut) + WallExt1(NWallExt1) + WallExt2(NWallExt2) + WallExt3(NWallExt3));
+
+plot(Aorte, wait = true);
+
+/***********************************************************************/
+/************************ DEFINITION DU PROBLEME ***********************/
+/***********************************************************************/
+
+/***************************************************/
+/*************+ Navier Stokes solver ***************/
+/***************************************************/
+
+// problem data 
+real mu=0.035;
+real dt = 0.01;
+int T = 8;
+int nstep = T/dt;
+int nh = 10;
+
+// finite element spaces et functions
+
+// -- P1/P1 
+fespace Xh(Aorte,P1);
+fespace Mh(Aorte,P1);
+fespace Rh(Aorte,P0);
+real gammap = 0.01;
+
+Xh ux, uy, vx, vy, uxo, uyo;
+Mh p, q;
+Rh tauK, uxK, uyK;
+
+Xh uIn;
+
+// parameter to fix the pressure mean 
+real epsilon = 1e-10;
+
+real t = 0;
+
+real pd = 8*13332.2;
+real Rd = 200;
+
+
+// Problem functional params
+int result;
+
+//fonction aux bords:
+func real g(real t) { 
+    if( 0.4<= t && t <= 0.8) { return 0;} 
+    else { return 200*sin(pi*t/0.4);}
+
+    }
+func real g1(real t) {
+    real t1 = (t/dt)%(0.8/dt);
+    return g(t1*dt);
+} 
+
+func real uiny(real t){ 
+    return g1(t)*(R*R -x*x)/(R*R);
+    }  
+
+
+func real neg(real u){
+    if(u < 0){return u;}
+    else{return 0;}
+}
+
+// macros   
+macro div(u,v) ( dx(u)+dy(v) )//
+
+//press = int1d(Aorte,GammaOut)( uxo*N.x+uyo*N.y );
+
+uxo = 0.;  
+uyo = 0.;
+real po = pd + Rd*int1d(Aorte,GammaOut)(uxo*N.x + uyo*N.y);
+
+// Navier-Stokes problem
+problem NS([ux, uy, p], [vx, vy, q]) = 
+  //Time
+  int2d(Aorte)((ux*vx + uy*vy)/dt)
+  - int2d(Aorte)(((uxo*vx + uyo*vy)/dt))
+  //
+  + int2d(Aorte)(mu*(dx(ux)*dx(vx) + dy(ux)*dy(vx) + dx(uy)*dx(vy)+ dy(uy)*dy(vy)))
+  // convection
+  + int2d(Aorte)(vx*(uxo*dx(ux) + uyo*dy(ux)) + vy*(uxo*dx(uy) + uyo*dy(uy)))
+  - int2d(Aorte)(p*div(vx,vy))
+  + int2d(Aorte)(div(ux,uy)*q)
+
+  //to fix the mean of the pressure 
+  //+ int2d(Aorte)( epsilon * p*q )
+  
+  // Temam's stabilization
+  + int2d(Aorte)(0.5*(vx*ux + vy*uy)*div(uxo,uyo))
+
+  // SUPG/PSPG stabilization
+  + int2d(Aorte)( tauK*[uxo*dx(ux)+uyo*dy(ux) + dx(p), uxo*dx(uy)+uyo*dy(uy) + dy(p)]'*[uxo*dx(vx)+uyo*dy(vx)+dx(q), uxo*dx(vy)+uyo*dy(vy)+dy(q)])
+
+  // backflow stabilization
+  + int1d(Aorte,GammaOut)( -0.5*neg(uxo*N.x+uyo*N.y)*[ux, uy]'*[vx, vy] )
+  
+  + int1d(Aorte,GammaOut)( po * [N.x, N.y]' * [vx, vy] )   
+  
+  //+ on(1, 2, 3, 4, ux= uxE, uy = uyE);
+
+  + on(GammaWall, ux = 0, uy = 0 ) 
+  + on(GammaIn, ux = 0, uy = uIn ) 
+  ; 
+
+
+real[int] tps(nstep);
+real[int] fluxIn(nstep), fluxOut(nstep);
+real[int] pIn(nstep), pOut(nstep);
+
+// time loop 
+for(int n = 0; n < nstep; n++){
+  
+  t+= dt;
+  cout << "t...." << t <<endl;
+  // stabilization parameter 
+  tauK= 0.1/(sqrt(4.0*(uxo^2 + uyo^2)/(hTriangle^2) + 16.0*mu*mu/(hTriangle^4)));
+  
+  po = pd + Rd*int1d(Aorte,GammaOut)(uxo*N.x + uyo*N.y);
+  cout << "po..." << po <<endl;
+
+  uIn = uiny(t);
+  NS;
+  
+  // Update
+  uxo=ux;
+  uyo=uy;
+  
+  // Plot
+  plot([ux,uy], wait = true, coef=0.1,value=true);
+  plot(p, wait = true, fill=true,value=true);
+   
+  tps[n] = t;
+  fluxIn[n] = int1d(Aorte, GammaIn)( ux*N.x + uy*N.y);
+  fluxOut[n] = int1d(Aorte, GammaOut)( ux*N.x + uy*N.y);
+  pIn[n] = 1/(2*R)*int1d(Aorte, GammaIn)( p);
+  pOut[n] = 1/(2*R)*int1d(Aorte, GammaOut)( p);
+
+}
+
+plot([tps,fluxIn], wait=true);
+plot([tps,fluxOut], wait=true);
+plot([tps,pIn], wait=true);
+plot([tps,pOut], wait=true);
+
+
+{
+    ofstream ff("graph_Rd200.txt");
+    for (int i = 0; i < nstep; i++)
+    { ff << tps[i] << ";" << fluxIn[i] << ";" << fluxOut[i] << ";" << pIn[i] << ";" << pOut[i] << "\n"; }
+}
