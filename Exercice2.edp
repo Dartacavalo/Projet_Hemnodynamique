@@ -48,6 +48,18 @@ real dt = 0.01;
 int T = 1;
 int nstep = T/dt;
 
+real pd = 8*13332.2;
+// Resistances, change for diifferente results
+real Rd1 = 800;
+real Rd2 = 800;
+
+real t = 0;
+
+// Diameter of the different blood vessels
+real RIn = 1/(0.4);
+real ROut1 = 1/sqrt((0.2)^2 +(0.2)^2);
+real ROut2 = 1/sqrt((0.3)^2+(0.3)^2 );
+
 
 // finite element spaces et functions
 
@@ -61,15 +73,7 @@ Xh ux, uy, vx, vy, uxo, uyo;
 Mh p, q;
 Rh tauK, uxK, uyK;
 
-Xh uIn;
-
-real t = 0;
-
-real pd = 8*13332.2;
-real Rd1 = 800;
-real Rd2 = 800;
-
-
+Xh uIn; // Initial condition
 
 //fonction aux bords:
 func real g(real t) { 
@@ -86,6 +90,7 @@ func real unix(real t) {
   return g1(t)*(0.4 -y)*y;
 } 
 
+// negative part function
 func real neg(real u){
     if(u < 0){return u;}
     else{return 0;}
@@ -93,8 +98,6 @@ func real neg(real u){
 
 // macros   
 macro div(u,v) ( dx(u)+dy(v) )//
-
-//press = int1d(Aorte,GammaOut)( uxo*N.x+uyo*N.y );
 
 // initial condition 
 uxo = 0.;  
@@ -114,9 +117,6 @@ problem NS([ux, uy, p], [vx, vy, q]) =
   + int2d(Aorte)(vx*(uxo*dx(ux) + uyo*dy(ux)) + vy*(uxo*dx(uy) + uyo*dy(uy)))
   - int2d(Aorte)(p*div(vx,vy))
   + int2d(Aorte)(div(ux,uy)*q)
-
-  //to fix the mean of the pressure 
-  //+ int2d(Aorte)( epsilon * p*q )
   
   // Temams stabilization
   + int2d(Aorte)(0.5*(vx*ux + vy*uy)*div(uxo,uyo))
@@ -128,28 +128,19 @@ problem NS([ux, uy, p], [vx, vy, q]) =
   + int1d(Aorte, GammaOut1)( -0.5*neg(uxo*N.x+uyo*N.y)*[ux, uy]'*[vx, vy] )
   + int1d(Aorte, GammaOut2)( -0.5*neg(uxo*N.x+uyo*N.y)*[ux, uy]'*[vx, vy] )
 
-  
   + int1d(Aorte, GammaOut1)( p1 * [N.x, N.y]' * [vx, vy] )  
   + int1d(Aorte, GammaOut2)( p2 * [N.x, N.y]' * [vx, vy] )   
-
-  
-  //+ on(1, 2, 3, 4, ux= uxE, uy = uyE);
 
   + on(GammaWall, ux = 0, uy = 0 ) 
   + on(GammaIn, ux = unix(t), uy = 0 ) 
   ; 
 
-
+// Average pressure and flux in and out
 real[int] tps(nstep);
 real[int] fluxIn(nstep);
 real[int] fluxOut1(nstep), fluxOut2(nstep);
 real[int] pIn(nstep);
 real[int] pOut1(nstep), pOut2(nstep);
-
-real RIn = 1/(0.4);
-real ROut1 = 1/sqrt((0.2)^2 +(0.2)^2);
-real ROut2 = 1/sqrt((0.3)^2+(0.3)^2 );
-
 
 // time loop 
 for(int n = 0; n < nstep; n++){
@@ -183,14 +174,19 @@ for(int n = 0; n < nstep; n++){
   pOut2[n] = ROut2*int1d(Aorte, GammaOut2)( p2);
 }
 
-{
-    ofstream ff("graph_Ex2_Rd1_800_Rd2_800.txt");
-    for (int i = 0; i < nstep; i++)
-    { ff << tps[i] << ";" << fluxIn[i] << ";" << fluxOut1[i] << ";" << fluxOut2[i] << ";" << pIn[i] << ";" << pOut1[i] << ";" << pOut2[i] <<"\n"; }
-}
+// Plots of average flux and pressure in and out
 plot([tps,fluxIn], value=true, wait=true);
 plot([tps,fluxOut1], value=true, wait=true);
 plot([tps,fluxOut2], value=true, wait=true);
 plot([tps,pIn], value=true, wait=true);
 plot([tps,pOut1], value=true, wait=true);
 plot([tps,pOut2], value=true, wait=true);
+
+// Exporting data for plotting
+{
+    ofstream ff("graph_Ex2_Rd1_800_Rd2_800.txt"); // change name's resistance values according to those being used to avoid confusion
+    for (int i = 0; i < nstep; i++)
+    { ff << tps[i] << ";" << fluxIn[i] << ";" << fluxOut1[i] << ";" << fluxOut2[i] << ";" << pIn[i] << ";" << pOut1[i] << ";" << pOut2[i] <<"\n"; }
+}
+
+

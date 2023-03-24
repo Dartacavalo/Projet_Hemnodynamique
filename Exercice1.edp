@@ -75,7 +75,7 @@ Xh ux, uy, vx, vy, uxo, uyo;
 Mh p, q;
 Rh tauK, uxK, uyK;
 
-Xh uIn;
+Xh uIn; // Initial condition
 
 // parameter to fix the pressure mean 
 real epsilon = 1e-10;
@@ -83,13 +83,13 @@ real epsilon = 1e-10;
 real t = 0;
 
 real pd = 8*13332.2;
-real Rd = 200;
+real Rd = 200; // Resistances, change for diifferente results
 
 
 // Problem functional params
 int result;
 
-//fonction aux bords:
+// fonction aux bords:
 func real g(real t) { 
     if( 0.4<= t && t <= 0.8) { return 0;} 
     else { return 200*sin(pi*t/0.4);}
@@ -102,9 +102,9 @@ func real g1(real t) {
 
 func real uiny(real t){ 
     return g1(t)*(R*R -x*x)/(R*R);
-    }  
+}  
 
-
+// negative part of function
 func real neg(real u){
     if(u < 0){return u;}
     else{return 0;}
@@ -130,9 +130,6 @@ problem NS([ux, uy, p], [vx, vy, q]) =
   + int2d(Aorte)(vx*(uxo*dx(ux) + uyo*dy(ux)) + vy*(uxo*dx(uy) + uyo*dy(uy)))
   - int2d(Aorte)(p*div(vx,vy))
   + int2d(Aorte)(div(ux,uy)*q)
-
-  //to fix the mean of the pressure 
-  //+ int2d(Aorte)( epsilon * p*q )
   
   // Temam's stabilization
   + int2d(Aorte)(0.5*(vx*ux + vy*uy)*div(uxo,uyo))
@@ -144,14 +141,12 @@ problem NS([ux, uy, p], [vx, vy, q]) =
   + int1d(Aorte,GammaOut)( -0.5*neg(uxo*N.x+uyo*N.y)*[ux, uy]'*[vx, vy] )
   
   + int1d(Aorte,GammaOut)( po * [N.x, N.y]' * [vx, vy] )   
-  
-  //+ on(1, 2, 3, 4, ux= uxE, uy = uyE);
 
   + on(GammaWall, ux = 0, uy = 0 ) 
   + on(GammaIn, ux = 0, uy = uIn ) 
   ; 
 
-
+// Average pressure and flux in and out
 real[int] tps(nstep);
 real[int] fluxIn(nstep), fluxOut(nstep);
 real[int] pIn(nstep), pOut(nstep);
@@ -178,6 +173,7 @@ for(int n = 0; n < nstep; n++){
   plot([ux,uy], wait = true, coef=0.1,value=true);
   plot(p, wait = true, fill=true,value=true);
    
+
   tps[n] = t;
   fluxIn[n] = int1d(Aorte, GammaIn)( ux*N.x + uy*N.y);
   fluxOut[n] = int1d(Aorte, GammaOut)( ux*N.x + uy*N.y);
@@ -186,14 +182,15 @@ for(int n = 0; n < nstep; n++){
 
 }
 
+// Plots of average flux and pressure in and out
 plot([tps,fluxIn], wait=true);
 plot([tps,fluxOut], wait=true);
 plot([tps,pIn], wait=true);
 plot([tps,pOut], wait=true);
 
-
+// Exporting data for plotting
 {
-    ofstream ff("graph_Rd200.txt");
+    ofstream ff("graph_Rd200.txt"); // change namme's resistance values according to those being used to avoid confusion
     for (int i = 0; i < nstep; i++)
     { ff << tps[i] << ";" << fluxIn[i] << ";" << fluxOut[i] << ";" << pIn[i] << ";" << pOut[i] << "\n"; }
 }
